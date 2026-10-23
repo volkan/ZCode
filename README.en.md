@@ -23,6 +23,9 @@ Volkan confirmed the original login change worked on 2026-10-23.
 CLI 0.17.0 integration passed isolated data-copy checks, automated tests, and live new-session and restart/resume checks.
 See the [validation record](docs/testing/fork-cli-login-validation-2026-10-23.md) for commands and coverage limits.
 
+This fork also uses Node 24.22.1 and fixes first-use MCP OAuth directory creation.
+See the [security runtime validation](docs/testing/fork-node-security-validation-2026-10-23.md).
+
 ## Updates
 
 - **2026-10-19**: Updated to ZCode v3.16.2.

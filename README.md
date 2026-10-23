@@ -23,6 +23,9 @@ Volkan 于 2026-10-23 确认原登录改动可用。
 CLI 0.17.0 集成已通过独立数据副本检查、自动化测试，以及真实服务的新建会话和重启续聊检查。
 具体命令和验证范围见[验证记录](docs/testing/fork-cli-login-validation-2026-10-23.md)。
 
+此 Fork 还使用 Node 24.22.1，并修复 MCP OAuth 首次使用时的凭据目录创建。
+详见[安全运行时验证记录](docs/testing/fork-node-security-validation-2026-10-23.md)。
+
 ## 更新
 
 - **2026-10-19**：更新至 ZCode v3.16.2 版本。
