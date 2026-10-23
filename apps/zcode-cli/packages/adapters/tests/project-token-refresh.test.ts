@@ -50,7 +50,12 @@ describe.each(["bigmodel", "zai"] as const)("%s PAT 临时刷新失败", (family
       httpClient: { request } as unknown as HttpClientPort,
       observe,
     });
-    const input = { family, accessToken: "oauth", accountIdentity: "user" };
+    const input = {
+      family,
+      credentialKind: "oauth" as const,
+      accessToken: "oauth",
+      accountIdentity: "user",
+    };
     await expect(resolver.resolve(input)).resolves.toBe("old-pat");
     vi.setSystemTime(start + 481_000);
     if (["network_error", "timeout", 429, 503].includes(failure)) {

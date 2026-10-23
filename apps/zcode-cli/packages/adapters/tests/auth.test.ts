@@ -409,6 +409,7 @@ describe("Coding Plan API key resolver", () => {
         createCodingPlanApiKeyResolver({ httpClient }).resolve({
           accessToken: "login-token",
           family,
+          credentialKind: "oauth",
         }),
       ).resolves.toBe("project-token");
       expect(httpClient.requests.some((request) => request.url.includes("/copy/"))).toBe(false);
@@ -503,6 +504,7 @@ describe("Coding Plan API key resolver", () => {
       resolver.resolve({
         accessToken: "zai-oauth-token",
         family: "zai",
+        credentialKind: "oauth",
       }),
     ).resolves.toBe("project-token");
     expect(httpClient.requests[0]?.url).toBe("https://api.z.ai/api/auth/z/login");

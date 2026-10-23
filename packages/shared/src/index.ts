@@ -342,6 +342,7 @@ export { API_KEY_USAGE_SCENE, type ApiKeyCreationUsageScene } from "./api-key-us
 export {
   projectAccessTokenFingerprint,
   ProjectAccessTokenTransientError,
+  ProjectAccessTokenError,
 } from "./project-access-token.js";
 export {
   ProjectAccessTokenClient,

@@ -10,8 +10,14 @@ export interface ZaiBusinessToken {
   readonly refreshAt: number;
   readonly expiresAt?: number;
 }
+export interface ZaiBusinessTokenLease {
+  readonly value: ZaiBusinessToken;
+  assertCurrent(): void;
+  release(): void;
+}
 interface Session {
   oauth: string;
+  active: Map<ZaiBusinessToken, number>;
   pending?: Promise<ZaiBusinessToken>;
   value?: ZaiBusinessToken;
   retryAt?: number;
@@ -20,11 +26,14 @@ interface Session {
 /** 业务 JWT 与 PAT 生命周期不同；缓存只由 CLI 换证 adapter 持有。 */
 export class ZaiBusinessTokenCache {
   #session?: Session;
+  #scopeGeneration = 0;
   readonly #rejected = new WeakSet<ZaiBusinessToken>();
 
   constructor(private readonly onRefreshDeferred?: () => void) {}
 
   clear(): void {
+    this.#scopeGeneration++;
+    this.#session?.active.clear();
     this.#session = undefined;
   }
 
@@ -34,12 +43,54 @@ export class ZaiBusinessTokenCache {
     if (this.#session?.value === value) this.#session.value = undefined;
   }
 
+  invalidateMatchingToken(token: string): void {
+    const session = this.#session;
+    const value = session?.value;
+    if (value?.token === token) this.invalidate(value);
+    for (const active of session?.active.keys() ?? []) {
+      if (active.token === token) this.invalidate(active);
+    }
+  }
+
+  captureMatchingRejection(): (token: string) => void {
+    const generation = this.#scopeGeneration;
+    return (token) => {
+      if (this.#scopeGeneration === generation) this.invalidateMatchingToken(token);
+    };
+  }
+
+  async acquire(oauth: string, exchange: () => Promise<unknown>): Promise<ZaiBusinessTokenLease> {
+    const pending = this.resolve(oauth, exchange);
+    const session = this.#session;
+    const value = await pending;
+    if (!session || this.#session !== session) throw new Error("project_token_scope_invalidated");
+    // 在途 PAT 仍可使用旧 JWT；只保留活动引用，避免刷新后丢失旧 401 或积累凭据历史。
+    session.active.set(value, (session.active.get(value) ?? 0) + 1);
+    let released = false;
+    return {
+      value,
+      assertCurrent: () => {
+        if (this.#session !== session) throw new Error("project_token_scope_invalidated");
+      },
+      release: () => {
+        if (released) return;
+        released = true;
+        const count = session.active.get(value);
+        if (count === 1) session.active.delete(value);
+        else if (count) session.active.set(value, count - 1);
+      },
+    };
+  }
+
   wasRejected(value: ZaiBusinessToken): boolean {
     return this.#rejected.has(value);
   }
 
   async resolve(oauth: string, exchange: () => Promise<unknown>): Promise<ZaiBusinessToken> {
-    if (this.#session?.oauth !== oauth) this.#session = { oauth };
+    if (this.#session?.oauth !== oauth) {
+      if (this.#session) this.clear();
+      this.#session = { oauth, active: new Map() };
+    }
     const session = this.#session;
     if (session.pending) return session.pending;
     if (

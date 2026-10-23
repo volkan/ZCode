@@ -47,8 +47,8 @@ const DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60 * 1_000;
 
 /**
  * Z.ai 与 BigModel 共用服务端轮询登录：init 拿授权地址，浏览器授权后轮询到 ready，
- * 再解析项目访问材料并写入凭据与默认模型。OAuth 登录不落盘派生 API Key，
- * 运行时按 `authSource: "oauth"` 用访问令牌换取请求凭据。
+ * Z.ai 先归一化业务 JWT，再验证项目访问材料并写入凭据与默认模型。
+ * OAuth 登录不落盘派生 API Key 或 PAT；运行时按 `authSource: "oauth"` 换取 PAT。
  */
 export async function loginZCodeCli(
   options: LoginZCodeCliOptions = {},
@@ -98,7 +98,7 @@ export async function loginZCodeCli(
           ? timeoutError()
           : new ZCodeCliLoginError(code, "Authorization failed. Please retry login."),
     });
-    const material = await waitWithAbort(
+    const { material, accessToken } = await waitWithAbort(
       resolveCodingPlanMaterial({
         accessToken: readyData.accessToken,
         env,
@@ -122,7 +122,7 @@ export async function loginZCodeCli(
     try {
       if (providerId === "zai") {
         await credentialStore.saveZaiLoginCredentials({
-          accessToken: readyData.accessToken,
+          accessToken,
           jwtToken: readyData.token,
           user: readyData.user,
         });
@@ -251,11 +251,21 @@ async function resolveCodingPlanMaterial(input: {
     createCodingPlanApiKeyResolver({
       httpClient: input.httpClient ?? createDefaultHttpClient(input.env),
     });
-  return resolver.resolveMaterial(
+  // 共享凭据契约是业务 JWT；先归一化并验证 PAT，成功前不发布 raw OAuth。
+  const runOptions = { signal: input.signal };
+  const accessToken =
+    input.family === "zai"
+      ? await resolver.normalizeZaiOAuth({ accessToken: input.accessToken }, runOptions)
+      : input.accessToken;
+  throwIfAborted(input.signal);
+  const material = await resolver.resolveMaterial(
     {
-      accessToken: input.accessToken,
-      family: input.family,
+      accessToken,
+      ...(input.family === "zai"
+        ? { family: input.family, credentialKind: "business" as const }
+        : { family: input.family }),
     },
-    { signal: input.signal },
+    runOptions,
   );
+  return { accessToken, material };
 }
