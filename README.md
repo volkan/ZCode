@@ -13,6 +13,16 @@
 
 ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Agent。本仓库包含客户端、后端服务、共享 UI，以及 Agent CLI 与运行时源码。
 
+## 个人 Fork
+
+此个人 Fork 包含 [CLI 登录凭据持久化修复](https://github.com/volkan/ZCode/commit/baf6bf15f1c0a30f2881ce374bc4ca53c7c57d5d)。
+CLI 与 Desktop 一样保存 Z.AI 业务 JWT，重启后用它获取短期项目访问令牌。
+服务端拒绝已保存的 JWT 时仍需重新登录。
+
+Volkan 于 2026-10-23 确认原登录改动可用。
+CLI 0.17.0 集成已通过独立数据副本检查、自动化测试，以及真实服务的新建会话和重启续聊检查。
+具体命令和验证范围见[验证记录](docs/testing/fork-cli-login-validation-2026-10-23.md)。
+
 ## 更新
 
 - **2026-10-19**：更新至 ZCode v3.16.2 版本。

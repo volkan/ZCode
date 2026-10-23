@@ -13,6 +13,16 @@
 
 ZCode is an AI coding workspace with desktop, browser, and terminal interfaces. This repository contains the clients, backend services, shared UI, and Agent CLI and runtime source code.
 
+## Personal fork
+
+This fork includes the [CLI login persistence fix](https://github.com/volkan/ZCode/commit/baf6bf15f1c0a30f2881ce374bc4ca53c7c57d5d).
+The CLI stores the Z.AI business JWT, matching Desktop, and obtains short-lived project tokens after restart.
+Server rejection of the stored JWT still requires login again.
+
+Volkan confirmed the original login change worked on 2026-10-23.
+CLI 0.17.0 integration passed isolated data-copy checks, automated tests, and live new-session and restart/resume checks.
+See the [validation record](docs/testing/fork-cli-login-validation-2026-10-23.md) for commands and coverage limits.
+
 ## Updates
 
 - **2026-10-19**: Updated to ZCode v3.16.2.
