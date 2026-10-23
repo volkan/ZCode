@@ -67,6 +67,26 @@ modules:
   - id: zcode-cli
     roots: [apps/zcode-cli]
     managed: false
+  - id: project-token-cache
+    roots:
+      - packages/shared/src/project-token-cache
+      - packages/shared/src/project-access-token.ts
+    managed: true
+    requires: [shared]
+    publicEntrypoints:
+      - packages/shared/src/project-access-token.ts
+      - packages/shared/src/project-token-cache/contract.ts
+    layers: { app: . }
+  - id: zai-business-token-lifecycle
+    roots:
+      - apps/zcode-cli/packages/adapters/src/auth/zai-business-token-lifecycle
+      - apps/zcode-cli/packages/adapters/src/auth/zai-business-token-cache.ts
+    managed: true
+    requires: [shared]
+    publicEntrypoints:
+      - apps/zcode-cli/packages/adapters/src/auth/zai-business-token-cache.ts
+      - apps/zcode-cli/packages/adapters/src/auth/zai-business-token-lifecycle/contract.ts
+    layers: { app: . }
   # sqlite-migrations：由 architecture:adopt 登记
   - id: sqlite-migrations
     roots:
