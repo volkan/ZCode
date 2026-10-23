@@ -32,7 +32,7 @@ See the [validation record](docs/testing/fork-cli-login-validation-2026-10-23.md
 
 ## Setup
 
-Install Git, Node.js **24.14.0**, and pnpm **10.33.2**. [mise.toml](mise.toml) is the source of truth for tool versions. Run all development and packaging commands below from the repository root.
+Install Git, Node.js **24.22.1**, and pnpm **10.33.2**. [mise.toml](mise.toml) is the source of truth for tool versions. Run all development and packaging commands below from the repository root.
 
 ```bash
 pnpm bootstrap

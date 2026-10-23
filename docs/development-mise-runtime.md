@@ -15,7 +15,9 @@
 
 ## 约定
 
-- Node 固定为 `24.14.0`，与 `apps/zcode-cli/.node-version` 保持一致。
+- Node 固定为 `24.22.1`，与 CLI 的 `.node-version`、`.nvmrc` 和 `engines.node` 保持一致。根目录与 `office-runtime` 的 `engines.node` 最低版本为 `24.22.1`。
+- 开发、构建、SEA 发布和仓库 E2E 容器使用该安全补丁版本。SEA 许可材料必须登记同版本官方原文与 SHA-256。Electron 内嵌 Node 和远端独立 Node 由各自发布流程管理。
+- `pnpm ci:assert-node` 从根 `package.json` 读取 `engines.node` 最低版本，拒绝较旧补丁版本，并保留对更高主版本的支持。最低版本边界、旧补丁、旧主版本和更高版本必须有回归测试。
 - pnpm 固定为 `10.33.2`，与 `apps/zcode-cli/package.json` 的 `packageManager` 保持一致。
 - Electron 安装阶段通过 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` 下载，避免首次安装依赖时直连 GitHub release 超时。
 - 任务入口仍调用根目录 `package.json` 中已有脚本，避免 desktop / web / agent 的启动语义分叉。

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-ARG NODE_IMAGE=node:24.14-alpine
+ARG NODE_IMAGE=node:24.22.1-alpine
 FROM ${NODE_IMAGE}
 
 ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org/

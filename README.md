@@ -32,7 +32,7 @@ CLI 0.17.0 集成已通过独立数据副本检查、自动化测试，以及真
 
 ## 初始化
 
-准备 Git、Node.js **24.14.0** 和 pnpm **10.33.2**，版本以 [mise.toml](mise.toml) 为准。以下开发和打包命令均在仓库根目录执行。
+准备 Git、Node.js **24.22.1** 和 pnpm **10.33.2**，版本以 [mise.toml](mise.toml) 为准。以下开发和打包命令均在仓库根目录执行。
 
 ```bash
 pnpm bootstrap
