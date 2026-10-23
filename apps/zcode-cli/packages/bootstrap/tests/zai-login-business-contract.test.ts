@@ -38,6 +38,12 @@ function gate() {
   });
   return { promise, release };
 }
+// customerInfo 使用裸业务 JWT；个人 Key/PAT 端点仍要求 Bearer。
+function expectedBusinessAuthorization(req: HttpClientRequest): string {
+  return new URL(req.url).pathname.endsWith("/api/biz/customer/getCustomerInfo")
+    ? BUSINESS
+    : `Bearer ${BUSINESS}`;
+}
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "zai-business-contract-"));
   dirs.push(dir);
@@ -78,7 +84,9 @@ async function fixture() {
       expect(JSON.parse(new TextDecoder().decode(req.body))).toEqual({ token: RAW });
       data = { access_token: BUSINESS, expires_in: 3600 };
     } else {
-      expect(new Headers(req.headers).get("Authorization")).toBe(`Bearer ${BUSINESS}`);
+      expect(new Headers(req.headers).get("Authorization")).toBe(
+        expectedBusinessAuthorization(req),
+      );
       if (path.endsWith("getCustomerInfo"))
         data = { organizations: [{ organizationId: "org", projects: [{ projectId: "project" }] }] };
       else if (path.endsWith("api_keys")) data = [{ apiKey: "key-id", name: "zcode-api-key" }];
@@ -216,7 +224,10 @@ describe("native ZAI login and shared business credential", () => {
     expect(
       f.request.mock.calls
         .slice(count)
-        .every(([req]) => new Headers(req.headers).get("Authorization") === `Bearer ${BUSINESS}`),
+        .every(
+          ([req]) =>
+            new Headers(req.headers).get("Authorization") === expectedBusinessAuthorization(req),
+        ),
     ).toBe(true);
     expect(await f.store.load(legacyKey)).toBe("unused-private-key");
   });

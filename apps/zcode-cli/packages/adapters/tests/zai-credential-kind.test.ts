@@ -131,9 +131,15 @@ describe("explicit ZAI credential contract", () => {
     ).resolves.toBe("pat-3");
     expect(f.logins()).toHaveLength(0);
     expect(
-      f.request.mock.calls.every(
-        ([req]) => new Headers(req.headers).get("Authorization") === "Bearer returned-business",
-      ),
+      f.request.mock.calls.every(([req]) => {
+        // customerInfo 使用裸业务 JWT；个人 Key/PAT 端点仍要求 Bearer。
+        const expectedAuthorization = new URL(req.url).pathname.endsWith(
+          "/api/biz/customer/getCustomerInfo",
+        )
+          ? "returned-business"
+          : "Bearer returned-business";
+        return new Headers(req.headers).get("Authorization") === expectedAuthorization;
+      }),
     ).toBe(true);
   });
 
