@@ -276,8 +276,13 @@ sequenceDiagram
 
 ### 4.2 leader / follower 契约
 
+授权 lease adapter 在竞争锁前异步、递归创建凭据父目录。首次启动时该目录可以不存在。
+只创建父目录，不预建锁目录；锁的独占获取、竞争和失效 owner 回收仍归 `acquireFileLock`。
+目录创建失败必须传播为授权编排失败，不能降级为 follower。
+
 ```text
 G0 = 当前 canonical generation（baseline）
+lease adapter：mkdir(credentials parent, recursive)
 tryAcquire(authz lease, attemptId)
  ├─ 未抢到 → follower
  │    读 pending：attemptId 有效且未过期 → 展示同一授权 URL

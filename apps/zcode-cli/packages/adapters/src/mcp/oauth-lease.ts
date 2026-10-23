@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { acquireFileLock } from "@zcode/shared/node";
 import { ZCODE_FILE_LOCK_TIMEOUT_ERROR_CODE } from "@zcode/shared";
@@ -53,6 +54,8 @@ export async function tryAcquireAuthorizationLease(input: {
   keyPrefix: string;
 }): Promise<McpOAuthAuthorizationLease | undefined> {
   const leasePath = resolveAuthorizationLeasePath(input.credentialsFilePath, input.keyPrefix);
+  // 首次授权时凭据目录可能尚未创建；只准备父目录，锁目录仍由 acquireFileLock 独占创建。
+  await mkdir(dirname(leasePath), { recursive: true });
   try {
     const release = await acquireFileLock(
       leasePath,

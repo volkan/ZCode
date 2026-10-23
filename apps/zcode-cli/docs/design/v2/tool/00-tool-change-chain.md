@@ -438,6 +438,8 @@ MCP 动态 tool 还需要额外确认：
 - 一次 MCP tool call 的 `timeoutMs` 是端到端 caller 预算，必须覆盖等待已有连接、第一次
   `tools/call`、共享 OAuth 恢复、Phase 1 重连和最多一次安全重试。各阶段只能消费剩余预算，
   禁止在重连或重试时重新获得一份完整 timeout。
+- MCP OAuth lease adapter 在抢锁前异步创建凭据父目录，支持空数据目录的首次授权。
+  独占锁仍由共享锁实现获取；目录创建失败继续传播。验收包含缺失父目录、竞争、释放和失效 owner 回收。
 - MCP OAuth 授权/重连是 adapter 持有的共享恢复任务，不归任一 tool caller 所有。caller 的
   timeout 或 AbortSignal 只能结束当前 waiter，不能关闭 callback listener、释放共享授权 lease
   或取消其他 caller 正在复用的恢复；只有显式 disconnect、adapter/session shutdown 或 connection
