@@ -46,7 +46,7 @@ Desktop 附加远程工作区的用量鉴权优先复用 sourceServices 中现�
 
 Host 沿用 IAccountRequestAuthService；Standalone 沿用请求 adapter。
 Key ID 可持久化：只存 organizationId/projectId/apiKeyId，按环境、family、稳定账号、个人/团队项目隔离；短期 Token 与登录 JWT 不进入该记录。重启复用 ID 直接换证，签发端明确 404 时清除元数据，下次重新查找/创建；其他鉴权错误只报错，不回退旧 Key。
-Token 不写 Provider Config、Registry、Session、UI 快照、日志或 credentials.json。
+PAT 不写 Provider Config、Registry、Session、UI 快照、日志或 credentials.json。
 按签发响应有效期刷新，提前 120 秒加 0–60 秒抖动；保留已建立 SSE，新 HTTP attempt 重新检查有效期。提前刷新仅在明确的网络/超时或 HTTP 429/5xx 临时故障时复用当前仍未过期、未被模型拒绝的 PAT，最多使用到原 expiresAt，每 5 秒才允许再次刷新，并记录固定脱敏事件 project_token_refresh_deferred。缓存与 pending 仍由同一个 owner 管理，并发请求共享刷新及降级结果。401/403/404、enable=false、取消、未知异常和畸形响应立即失败并清缓存；退出或切账号期间的迟到失败不得返回旧 PAT。显式拒绝指纹匹配时先移除旧值，刷新失败不能复用它。该容错不读取长期 API Key、不延长有效期、不重放模型请求。
 签发与管理响应共用成功码契约：数字或字符串的 0/200；Token 类型、非空值和有效期仍严格校验。真实后端样例联调另行记录，兼容测试不等于已完成联调。
 
@@ -71,21 +71,36 @@ Token 不写 Provider Config、Registry、Session、UI 快照、日志或 creden
 桌面 continuous / 手机 replayable → 沿用原 task owner、workspaceIdentity 与事件顺序
 ```
 
-Desktop Z.AI 的 deep link 和 polling 均在 `ZaiProviderAdapter` 登录边界调用 `/api/auth/z/login`；`oauth:zai:access_token` 已是业务 JWT，个人/团队 PAT owner 直接使用该值，不能二次兑换。Standalone 存储原始 OAuth Token，因此换证位置不同。回归覆盖 polling → 业务 JWT 落盘 → 个人/团队元数据 → PAT 签发的完整顺序。
+Desktop Z.AI 的 deep link 和 polling 均在 `ZaiProviderAdapter` 登录边界调用 `/api/auth/z/login`；`oauth:zai:access_token` 已是业务 JWT，个人/团队 PAT owner 直接使用该值，不能二次兑换。Standalone 原生登录也先归一化 raw OAuth，使用显式 `credentialKind=business` 验证 PAT，再由现有凭据存储器保存返回的业务 JWT。`oauth:zai:access_token` 在两端都保存业务 JWT，不保存 raw OAuth 或 PAT。Standalone 重启后直接以 business 输入签发 PAT，不调用 `/api/auth/z/login`。Desktop 仍保留 polling → 业务 JWT 落盘 → 个人/团队元数据 → PAT 签发的既有顺序。
 
-Standalone Z.ai 的 `/api/auth/z/login` 成功结果按 `expires_in` / `expiresIn` 和 JWT `exp` 的最早值缓存，提前 120 秒刷新；无有效期元数据最多缓存 5 分钟。并发刷新合并；clear/登录变化拒绝迟到结果。业务接口 HTTP 401 时只允许重新交换业务 JWT 并重试换证一次，403/网络错误不触发此恢复；二次 401 清掉失败业务 JWT，后续调用仍可重新尝试。该恢复仅覆盖元数据/签发请求，不重放模型推理。
+仅持有原始 OAuth 的显式 `credentialKind=oauth` owner 才能调用 `/api/auth/z/login`。其成功结果按 `expires_in` / `expiresIn` 和 JWT `exp` 的最早值缓存，提前 120 秒刷新；无有效期元数据最多缓存 5 分钟。并发刷新合并；clear/登录变化拒绝迟到结果。业务接口 HTTP 401 时只允许重新交换业务 JWT 并重试换证一次，403/网络错误不触发此恢复；二次 401 清掉失败业务 JWT，后续调用仍可重新尝试。该恢复仅覆盖元数据/签发请求，不重放模型推理。
 
-业务 JWT 提前刷新复用 HTTP adapter 的临时故障分类（网络、超时、429、5xx）。仅当已知原始有效期尚未结束、该 JWT 未被拒绝且登录代次未变时，所有并发调用共享旧值并退避 5 秒；不延长有效期，记录固定 `project_token_business_login_refresh_deferred` 事件。缺少有效期元数据的 5 分钟缓存上限不代表真实有效期，因此不允许临时故障降级。认证拒绝、取消、未知错误、畸形响应、退出和账号切换均不降级。
+上述显式 raw OAuth owner 的业务 JWT 提前刷新复用 HTTP adapter 的临时故障分类（网络、超时、429、5xx）。仅当已知原始有效期尚未结束、该 JWT 未被拒绝且登录代次未变时，所有并发调用共享旧值并退避 5 秒；不延长有效期，记录固定 `project_token_business_login_refresh_deferred` 事件。缺少有效期元数据的 5 分钟缓存上限不代表真实有效期，因此不允许临时故障降级。认证拒绝、取消、未知错误、畸形响应、退出和账号切换均不降级。
 
 ```text
-CLI ZaiBusinessTokenCache（唯一 owner）
+CLI 显式 raw OAuth 路径的 ZaiBusinessTokenCache（唯一 owner）
   → 提前换证 → 成功：替换业务 JWT
              → 临时故障 + 已知未过期 + 未拒绝 + 同一登录：共享原值，5 秒退避
              → 其他失败：清理原值并报错
   → clear / 登录切换：拒绝在途结果；invalidate：禁止被拒绝 JWT 降级
 ```
 
-Standalone 的 PAT、Key ID 定位与 Z.AI 业务 JWT 单飞请求由 resolver/cache owner 管理，不能继承任何单个模型请求的 AbortSignal（含 execution context 内的 abortSignal）。共享 HTTP 仅保留 trace/logger 上下文，每次请求有 15 秒超时；每个调用方在 `resolve` / `resolveMaterial` 外层独立等待，取消立即终止自己的等待并移除监听器，不清除共享缓存、不影响其他等待者。已取消的调用不启动换证；所有等待者取消后，已有换证仍受超时和登录代次约束，晚到失败被消费。logout/clear 仍使在途结果失效，不重放已建立的模型流。
+Standalone 仅有持久化 business JWT 的运行时没有 raw OAuth 刷新能力。业务接口拒绝该 JWT（HTTP 401/403，包括服务端拒绝过期 JWT）时，要求重新登录。不能把 business JWT 当作 raw OAuth 再次交换，也不能回退私有 API Key。PAT 的独立提前刷新与拒绝指纹机制保持不变。
+
+同一业务 JWT 的显式 raw/business 调用可以共享在途 PAT 请求。现有业务缓存为 raw 调用持有带引用计数的 credential lease，直到 PAT attempt 完成；成功和失败都在 finally 释放，重复释放无副作用。已完成调用的旧凭据不作为历史缓存保留，切账号和 clear 清除活动登记。ZAI 业务接口 HTTP 401 匹配当前或仍在使用的 JWT，不依赖首个调用者的 ALS 类型。请求在 HTTP 前捕获 cache scope；初始空 cache 可以接受同一 scope 中首次加入的 raw owner。切账号或 clear 后的旧响应不能拒绝新 scope 中的同值 JWT。若同一 raw 凭据的缓存已从 A 刷新为 B，迟到的 A 401 只拒绝仍在使用的 A，不清除 B。business 调用失败；raw owner 沿原有两次 attempt 上限使用 B 重试一次。
+
+```text
+business/raw 首个调用 -> 共享 PAT owner -> 在途 HTTP
+raw/business 后续调用 -> 同一在途请求
+raw 调用 -> cache lease 持有 A -> 共享 PAT owner
+同一 raw 凭据刷新 -> 当前 cache 为 B；活动 lease 仍持有 A
+A 的 HTTP 401 -> 校验 resolver generation 和 cache scope -> 拒绝活动 A，保留 B
+             -> business 调用：失败，不进行 raw 交换或 Key 回退
+             -> raw owner：沿用原有重试上限 -> 缓存 B -> 重试 PAT
+PAT attempt 完成 -> finally 释放 lease；不保留已完成调用的凭据历史
+```
+
+Standalone 的 PAT、Key ID 定位与显式 raw OAuth 路径的 Z.AI 业务 JWT 单飞请求由 resolver/cache owner 管理，不能继承任何单个模型请求的 AbortSignal（含 execution context 内的 abortSignal）。共享 HTTP 仅保留 trace/logger 上下文，每次请求有 15 秒超时；每个调用方在 `normalizeZaiOAuth` / `resolve` / `resolveMaterial` 外层独立等待，取消立即终止自己的等待并移除监听器，不清除共享缓存、不影响其他等待者。已取消的调用不启动换证；所有等待者取消后，已有换证仍受超时和登录代次约束，晚到失败被消费。logout/clear 仍使在途结果失效，不重放已建立的模型流。
 
 ```text
 会话 A ─ 独立等待（取消只结束 A） ─┐
@@ -103,7 +118,7 @@ Standalone 的 PAT、Key ID 定位与 Z.AI 业务 JWT 单飞请求由 resolver/c
 
 所有 OAuth 模型请求返回账号作用域约束；重试换证前后均校验，切账号/项目不得串用。迟到的旧 401 不能清除已更新的 PAT；指纹不进入持久化，不传到模型上游，也不记录凭据原文。SSE 已输出文本、思考或工具调用后不重放；compact 保留原 response-body 边界。取消不触发恢复。桌面 continuous 与手机 replayable 的状态 owner、会话路由和回放规则不变，SSH 仍通过原私有 Runtime Headers 通道换证。
 
-验收：闲时同一轮跨 TTL 后新请求使用新 PAT且票据不变；切账号/项目和换证中途变化失败；无 owner 时不能沿用过期快照；Z.ai 业务 JWT 跨 TTL 与并发刷新、单次 401 恢复、403/网络不重试、退出竞态均覆盖。已建立 SSE 不重放。
+验收：闲时同一轮跨 TTL 后新请求使用新 PAT且票据不变；切账号/项目和换证中途变化失败；无 owner 时不能沿用过期快照；Z.ai 显式 raw owner 的业务 JWT 跨 TTL、并发刷新和单次 401 恢复保持；403/网络不触发此恢复。持久化 business 路径拒绝后要求认证恢复。混合调用的两种到达顺序、迟到旧 401、不同新凭据和 clear 后同值新代次均覆盖。已建立 SSE 不重放。
 
 模型 PAT 恢复验收：首次 401 后实际使用新 PAT；普通请求预算为 1 时仍有一次恢复机会；二次 401 / 换证失败终止；SSE 首个错误块可恢复、文本或工具输出后不可重放；并发和迟到 401 不重复签发或清除新 PAT；取消、手工 Key、Start Plan、安全校验错误不触发 PAT 恢复；SSH 私有协议与子会话路由保留原作用域和失败指纹。
 

@@ -53,7 +53,12 @@ function fixture(options: { jwtTtl?: number; expiresIn?: number; failures?: numb
   const resolver = createCodingPlanApiKeyResolver({
     httpClient: { request } as unknown as HttpClientPort,
   });
-  const input = { family: "zai", accessToken: "oauth", accountIdentity: "user" } as const;
+  const input = {
+    family: "zai",
+    credentialKind: "oauth",
+    accessToken: "oauth",
+    accountIdentity: "user",
+  } as const;
   return {
     resolve: () => resolver.resolve(input),
     clear: () => resolver.clear(),
@@ -155,7 +160,12 @@ it.each([
     httpClient: { request } as unknown as HttpClientPort,
     observe,
   });
-  const input = { family: "zai", accessToken: "oauth", accountIdentity: "user" } as const;
+  const input = {
+    family: "zai",
+    credentialKind: "oauth",
+    accessToken: "oauth",
+    accountIdentity: "user",
+  } as const;
   await expect(resolver.resolve(input)).resolves.toBe("valid-pat");
   vi.setSystemTime(start + 481_000);
   if (["network_error", "timeout", 429, 503].includes(failure)) {

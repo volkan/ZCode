@@ -73,14 +73,15 @@ The ZAI OAuth session keys are:
 
 ```text
 oauth:active_provider       -> "zai"
-oauth:zai:access_token      -> data.zai.access_token
+oauth:zai:access_token      -> normalized MaaS business JWT
 zcodejwttoken               -> data.token
 oauth:zai:user_info         -> JSON.stringify(data.user)
 ```
 
-These keys are not the runtime model API key. They only preserve the Z.AI app
-login state and allow the CLI to exchange the Z.AI access token for a Coding
-Plan Project Access Token.
+These keys preserve the app session. The shared ZAI access-token key contains the
+MaaS business JWT returned by `/api/auth/z/login`, matching Desktop semantics.
+It does not contain raw CLI OAuth or a Project Access Token (PAT). Runtime sends
+this business JWT directly to the shared ProjectAccessTokenClient.
 
 `zcode logout` snapshots shared OAuth keys, account identity/source pointers, and
 only explicitly manual accounts' private model credential keys, then deletes
@@ -89,8 +90,7 @@ erased. Historical OAuth-derived keys (including corrupt ciphertext and records
 without a source marker) are neither decrypted nor deleted during logout.
 
 OAuth setup stores the stable identity and `auth-source=oauth`; manual setup stores
-`auth-source=manual` and its account-scoped API key. OAuth-derived short-lived
-Tokens are memory-only. Non-secret Key IDs may be persisted by environment,
+`auth-source=manual` and its account-scoped API key. Project Access Tokens (PATs) are memory-only. Non-secret Key IDs may be persisted by environment,
 family, account, organization and project for the next token exchange:
 
 ```text
@@ -120,7 +120,8 @@ https://zcode.z.ai/api/v1
 3. Show `authorize_url` and try to open it in the system browser.
 4. Poll `GET /oauth/cli/poll/:flow_id` with the same authorization header.
 5. Continue while `status` is `pending`.
-6. On `ready`, persist credentials and patch non-sensitive model config.
+6. On `ready`, normalize raw ZAI OAuth, validate a PAT, check cancellation, then
+   persist the business JWT and patch non-sensitive model config.
 7. On `failed`, timeout, or business error, report a retryable login failure.
 
 The HTTP response envelope is:
@@ -164,17 +165,83 @@ All four paths select the corresponding built-in provider/model. Only manual
 Key setup persists model credentials; OAuth setup retains the login session and
 stable identity, then resolves a Project Access Token before each HTTP attempt.
 
-`Z.AI Coding Plan` reuses the ZAI CLI OAuth flow above. After Poll returns
-`ready`, the CLI stores the existing ZAI OAuth session keys and exchanges
-`data.zai.access_token` for a Project Access Token:
+`Z.AI Coding Plan` reuses the ZAI CLI OAuth flow above. The existing CLI
+`CodingPlanApiKeyResolver` owns HTTP, the business-token cache, and the shared PAT
+client. Bootstrap owns login sequencing. The shared credential store owns native
+persistence and encryption; identity and `auth-source=oauth` remain unchanged.
 
-1. `POST https://api.z.ai/api/auth/z/login` with `{ "token": accessToken }`.
-2. Use the returned biz token as `Authorization: Bearer <token>`.
-3. Read customer org/project information.
-4. Find or create an API key named `zcode-api-key`.
-5. Issue `POST /api/biz/v1/organization/{org}/projects/{project}/api_keys/{id}/access_tokens`
-   with the biz login JWT and `{clientType: "zcode", clientVersion}`.
-6. Keep the Token in memory; persist only the stable user identity and OAuth source marker.
+1. Poll `ready` supplies raw `data.zai.access_token` in memory.
+2. Call the resolver's `normalizeZaiOAuth` with that raw token. It reuses
+   `ZaiBusinessTokenCache` and `POST /api/auth/z/login` with `{ "token": accessToken }`.
+3. Validate a PAT with explicit ZAI `credentialKind=business` and the returned JWT.
+   Read customer org/project information, find or create `zcode-api-key`, and issue
+   `POST /api/biz/v1/organization/{org}/projects/{project}/api_keys/{id}/access_tokens`.
+4. After the existing success/cancellation checks, call `saveZaiLoginCredentials`
+   with the business JWT. Failed or cancelled validation must not publish new credentials.
+5. Persist stable user identity and the OAuth source marker. Keep PATs in memory.
+
+```mermaid
+sequenceDiagram
+    participant B as Bootstrap login
+    participant R as CLI resolver (HTTP/cache owner)
+    participant S as Shared credential store
+    participant T as Restarted standalone runtime
+    B->>B: Poll ready (raw OAuth)
+    B->>R: normalizeZaiOAuth(raw OAuth)
+    R->>R: Business cache -> auth/z/login -> business JWT
+    R-->>B: business JWT
+    B->>R: resolveMaterial(kind=business, business JWT)
+    R->>R: Shared PAT client -> validate PAT
+    R-->>B: PAT material
+    B->>B: Existing success and cancellation checks
+    B->>S: saveZaiLoginCredentials(business JWT)
+    B->>S: Persist identity and auth-source=oauth
+    T->>S: Read business JWT and identity/source
+    T->>R: resolveMaterial(kind=business, persisted JWT)
+    R->>R: Shared PAT client (no auth/z/login)
+```
+
+Resolver input explicitly distinguishes ZAI `oauth` from `business`; it never guesses
+from token shape. Intentional raw OAuth owners use `credentialKind=oauth` and retain
+cached normalization and bounded business-401 refresh. Native login normalizes once,
+then uses the business path. Shared-key runtime always uses `credentialKind=business`,
+including Desktop-written values, and never calls `/api/auth/z/login`.
+
+An HTTP 401/403 rejection of a persisted business JWT requires authentication
+recovery through public `ProjectAccessTokenError(project_token_login_required)`.
+An expired JWT rejected by the server follows this same path. The
+business path cannot refresh raw OAuth it does not own, retry business as raw OAuth,
+or fall back to a private API key. PAT refresh, rejected fingerprints, account scope,
+generation guards, and logout protection remain with their existing owners. This
+contract introduces no token migration and makes no claim about an observed incident.
+
+Raw and business callers can share a pending PAT request for the same business JWT.
+A ZAI business-API HTTP 401 records rejection in the existing business cache before
+caller-specific failure handling. It matches the request credential against the
+current or actively used JWT independently of the initiating caller's ALS context.
+The existing cache retains each raw caller's credential object through a scoped lease
+until its PAT attempt settles. Reference counts cover concurrent uses of the same object.
+Release is idempotent; success and failure release in `finally`. Released old credentials
+are not retained as token history. Account switch and clear discard active tracking.
+
+A request captures the cache scope before HTTP, including an initially empty cache.
+Only rejection in that same scope can match current or active credential objects.
+If the cache advances from A to B, A's late 401 marks active A without invalidating B.
+The raw waiter can use its existing retry budget with B. Business callers fail closed.
+Only explicit raw owners can refresh; the two-attempt limit remains unchanged.
+Late rejection cannot invalidate another account or a cleared resolver generation.
+
+```text
+business or raw caller -> shared PAT owner -> pending HTTP request
+raw or business waiter -> same pending request
+raw caller -> cache lease for JWT A -> shared PAT owner
+same raw credential refresh -> current cache becomes JWT B; active A remains leased
+HTTP 401 for A -> same resolver generation and cache scope -> reject active A; keep B
+              -> business waiter: fail; no OAuth exchange or private-Key fallback
+              -> raw waiter: existing retry budget -> cached B -> PAT retry once
+PAT attempt settles -> release lease; retain no completed-use token history
+```
+
 
 `BigModel Coding Plan` uses a local callback server rather than the desktop app
 deeplink:
@@ -278,8 +345,11 @@ Required coverage:
   provider behavior, and `ZCODE_DATA_BASE_DIR`.
 - OAuth init/poll headers, envelope business errors, pending/ready/failed,
   and timeout.
-- Setup preserves personal providers and selects the built-in model. OAuth must
-  not persist short-lived Tokens or read legacy derived Keys.
+- Setup preserves personal providers and selects the built-in model. OAuth setup
+  persists the ZAI business JWT, never PATs, raw ZAI OAuth, or legacy derived Keys.
+- Native login exchanges raw OAuth once. Restart and Desktop-style business JWTs
+  obtain PATs without auth/z/login. Failed/cancelled login publishes no new credentials.
+- Explicit business rejection fails closed without raw retry or private-Key fallback.
 - Both families find/create `usageScene=1` dedicated Keys, use the ID for token
   issuance, and never call Copy.
 - Key ID records remain account/environment/project isolated and contain no secrets.
@@ -292,6 +362,6 @@ Required coverage:
 
 沿用共享 PAT owner。HTTP adapter 仅把结构化 network_error/timeout 和 HTTP 429/5xx 标记为临时故障；提前刷新遇到这些故障时，允许在原 expiresAt 内复用未被拒绝的 PAT，5 秒退避，并记录脱敏事件。取消、401/403/404、畸形响应及未知错误不降级。模型 401 恢复携带的拒绝指纹先清除匹配 PAT，不会因此重用失败凭据。退出/账号切换必须拒绝迟到结果；不回退 API Key。验收覆盖临时故障、取消、过期、明确拒绝、并发及两 family 的成功码 0/200/字符串兼容。
 
-Z.AI 前置业务 JWT 的 `ZaiBusinessTokenCache` 采用相同的临时故障分类与 5 秒退避，降级结果必须属于共享 pending。仅在 JWT exp / 响应 TTL 的最早期限内、同一登录且未被 invalidate 时复用旧值；无有效期元数据不降级。保留旧对象身份，确保迟到的 401 仍能将其标记为拒绝；clear/切账号拒绝在途结果。降级只记录固定 `project_token_business_login_refresh_deferred` 事件，不包含 JWT、OAuth 或响应内容。验收覆盖并发、退避恢复、原有效期边界、未知有效期、认证拒绝、取消及在途 clear/invalidate/换账号。
+仅显式 raw OAuth 路径的前置业务 JWT 的 `ZaiBusinessTokenCache` 采用相同的临时故障分类与 5 秒退避，降级结果必须属于共享 pending。仅在 JWT exp / 响应 TTL 的最早期限内、同一登录且未被 invalidate 时复用旧值；无有效期元数据不降级。保留旧对象身份，确保迟到的 401 仍能将其标记为拒绝；clear/切账号拒绝在途结果。降级只记录固定 `project_token_business_login_refresh_deferred` 事件，不包含 JWT、OAuth 或响应内容。验收覆盖并发、退避恢复、原有效期边界、未知有效期、认证拒绝、取消及在途 clear/invalidate/换账号。
 
-共享换证的生命周期属于 resolver/cache owner：Key ID 定位、PAT 签发/刷新/401 恢复与业务 JWT 换证 HTTP 都不携带单个调用方 signal，也不携带 context.abortSignal；保留 trace/logger，每次 HTTP 请求设置 15 秒超时。`resolve` 与 `resolveMaterial` 为调用方提供独立可取消等待，提前取消不发请求，等待中取消及时拒绝且移除监听器；不能让一个会话取消影响其他等待者或清空有效缓存。所有等待者退出后底层任务仍有超时，晚到失败必须消费；clear/登录代次保护不变。验收覆盖首个/后续等待者取消、并发共享、旧 PAT 刷新、401 恢复、Z.AI JWT 刷新、全员取消后的成功/失败、监听器清理和 logout 竞态。
+共享换证的生命周期属于 resolver/cache owner：Key ID 定位、PAT 签发/刷新/401 恢复与业务 JWT 换证 HTTP 都不携带单个调用方 signal，也不携带 context.abortSignal；保留 trace/logger，每次 HTTP 请求设置 15 秒超时。`normalizeZaiOAuth`、`resolve` 与 `resolveMaterial` 为调用方提供独立可取消等待，提前取消不发请求，等待中取消及时拒绝且移除监听器；不能让一个会话取消影响其他等待者或清空有效缓存。所有等待者退出后底层任务仍有超时，晚到失败必须消费；clear/登录代次保护不变。验收覆盖首个/后续等待者取消、并发共享、旧 PAT 刷新、401 恢复、Z.AI JWT 刷新、全员取消后的成功/失败、监听器清理和 logout 竞态。

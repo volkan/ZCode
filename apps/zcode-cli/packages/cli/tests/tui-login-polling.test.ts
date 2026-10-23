@@ -88,6 +88,7 @@ async function fixture(t: TestContext, providerId: "zai" | "bigmodel" = "bigmode
     store,
     sleeps,
     requests,
+    authSteps: [] as string[],
     advance: (ms: number) => {
       now += ms;
     },
@@ -126,15 +127,24 @@ async function fixture(t: TestContext, providerId: "zai" | "bigmodel" = "bigmode
       sleeps.push(ms);
       now += ms;
     },
-    // OAuth 登录只解析项目访问材料，不再落盘派生 API Key（staging 9af2a442d3 改为请求期换取 Token）。
+    // Z.ai 先归一化业务 JWT，再验证 PAT；共享键不能保存 raw OAuth。
     apiKeyResolver: {
+      async normalizeZaiOAuth(input, options) {
+        assert.equal(providerId, "zai");
+        assert.deepEqual(input, { accessToken: "test-oauth-token" });
+        assert.ok(options?.signal);
+        f.authSteps.push("normalize");
+        return "test-zai-business-token";
+      },
       async resolveMaterial(input, options) {
         assert.equal(input.family, providerId);
         assert.equal(
           input.accessToken,
-          providerId === "zai" ? "test-oauth-token" : "test-business-token",
+          providerId === "zai" ? "test-zai-business-token" : "test-business-token",
         );
+        assert.equal(input.credentialKind, providerId === "zai" ? "business" : undefined);
         assert.ok(options?.signal);
+        f.authSteps.push("validate");
         return TEST_PROJECT_MATERIAL;
       },
     } as unknown as LoginZCodeCliOptions["apiKeyResolver"],
@@ -169,6 +179,11 @@ for (const providerId of ["zai", "bigmodel"] as const) {
     assert.equal(result.user.user_id, "test-account");
     assert.equal(attempts, 5);
     assert.deepEqual(f.sleeps, [1000, 1000, 1000, 1000]);
+    assert.deepEqual(f.authSteps, providerId === "zai" ? ["normalize", "validate"] : ["validate"]);
+    assert.equal(
+      await f.store.load(providerId === "zai" ? keys.zaiAccessToken : keys.bigmodelAccessToken),
+      providerId === "zai" ? "test-zai-business-token" : "test-business-token",
+    );
     assert.equal(await f.store.load(keys.zcodeJwtToken), "test-backend-jwt");
     // Z.ai 以账号用户 ID 为连接身份；BigModel 以组织与项目的稳定摘要为连接身份。
     const expectedIdentity =

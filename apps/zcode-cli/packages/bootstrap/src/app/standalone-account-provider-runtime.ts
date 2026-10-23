@@ -272,7 +272,8 @@ export function createStandaloneProviderRuntimeHeadersPort(
         authSnapshots.set(sourceKey, "oauth");
         const material = await resolver.resolveMaterial(
           {
-            family,
+            // Desktop 与 CLI 的共享键均为业务 JWT，运行时不能重复 raw OAuth 换证。
+            ...(family === "zai" ? { family, credentialKind: "business" as const } : { family }),
             accessToken: oauth,
             accountIdentity: currentIdentity,
             rejectedProjectTokenFingerprint: input.rejectedProjectTokenFingerprint,

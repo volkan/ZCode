@@ -35,6 +35,7 @@ function fixture() {
     },
   };
   const resolver = {
+    normalizeZaiOAuth: vi.fn(async () => "business-jwt"),
     resolve: vi.fn(async () => "short-token"),
     resolveMaterial: vi.fn(async () => ({
       token: "short-token",

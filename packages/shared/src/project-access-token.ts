@@ -57,7 +57,12 @@ export type ProjectAccessTokenResult =
     };
 
 export class ProjectAccessTokenError extends Error {
-  constructor(readonly code: "project_token_invalid_response" | "project_token_scope_invalidated") {
+  constructor(
+    readonly code:
+      | "project_token_invalid_response"
+      | "project_token_scope_invalidated"
+      | "project_token_login_required",
+  ) {
     // 响应包含凭据；不把 zod issues、原始响应或 Token 放进异常/日志。
     super(code);
     this.name = "ProjectAccessTokenError";

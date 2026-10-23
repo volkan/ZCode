@@ -71,7 +71,12 @@ function fixture(family: "bigmodel" | "zai", phase: "metadata" | "pat" | "busine
   const resolver = createCodingPlanApiKeyResolver({
     httpClient: { request } as unknown as HttpClientPort,
   });
-  const input = { family, accessToken: "oauth", accountIdentity: "user" };
+  const input = {
+    family,
+    credentialKind: "oauth" as const,
+    accessToken: "oauth",
+    accountIdentity: "user",
+  };
   return {
     resolver,
     input,

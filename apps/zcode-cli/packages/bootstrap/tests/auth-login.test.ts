@@ -209,7 +209,7 @@ describe("ZCode CLI login", () => {
         },
       });
       expect(await credentialStore.load(SHARED_ZCODE_CREDENTIAL_KEYS.zaiAccessToken)).toBe(
-        "zai-access-token",
+        "zai-biz-token",
       );
       expect(await credentialStore.load(SHARED_ZCODE_CREDENTIAL_KEYS.zcodeJwtToken)).toBe(
         "jwt-token",
