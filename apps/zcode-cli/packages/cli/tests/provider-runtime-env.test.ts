@@ -9,10 +9,39 @@ import {
 } from "@zcode/provider-node";
 import {
   SEA_ZCODE_BUILTIN_PROVIDER_CONFIG_ASSET_KEY,
+  createCliProviderRefreshReporter,
   prepareCliProviderRuntimeEnv,
 } from "../src/provider-runtime-env.js";
 
 const temporaryDirectories: string[] = [];
+
+for (const nodeEnv of ["production", "development", undefined]) {
+  test(`provider refresh reporter hides optional results in ${nodeEnv ?? "unset"} mode`, () => {
+    const previous = process.env.NODE_ENV;
+    if (nodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = nodeEnv;
+    try {
+      let output = "";
+      const reporter = createCliProviderRefreshReporter({
+        write: (line: string) => {
+          output += line;
+          return true;
+        },
+      });
+      for (const result of ["missing", "skipped", "unchanged", "stale", "disposed"] as const) {
+        reporter.onBuiltinRefreshResult({ result });
+      }
+      assert.equal(output, "");
+      reporter.onBuiltinRefreshResult({ result: "updated", revision: 4 });
+      assert.equal(output, "ZCode Built-in updated revision=4 source=CDN\n");
+      reporter.onBuiltinRefreshError(new Error("refresh failed"));
+      assert.match(output, /刷新失败: refresh failed/);
+    } finally {
+      if (previous === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous;
+    }
+  });
+}
 
 test.afterEach(async () => {
   await Promise.all(

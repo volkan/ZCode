@@ -27,8 +27,8 @@ export function createCliProviderRefreshReporter(
       );
     },
     onBuiltinRefreshResult(event: ZCodeBuiltinRefreshEvent) {
-      // TTL 检查不是生产事件；成功更新才默认留痕，不能输出 CDN URL 查询参数或内容。
-      if (event.result === "updated" || process.env.NODE_ENV !== "production") {
+      // 未发布远端配置不代表本地配置缺失；仅记录实际更新，避免可选刷新结果误导用户。
+      if (event.result === "updated") {
         stderr.write(
           `ZCode Built-in ${event.result}${event.reason ? ` (${event.reason})` : ""}${event.revision === undefined ? "" : ` revision=${event.revision} source=CDN`}\n`,
         );
