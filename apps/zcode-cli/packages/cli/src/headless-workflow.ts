@@ -9,6 +9,7 @@ import { createDenyPermissionBroker } from "@zcode/core";
 import type { GlobalOptions } from "@zcode/shared-types";
 import type { ZCodeAppOptions } from "@zcode/bootstrap";
 import { readRuntimeFunction } from "./runtime-event-subscriber.js";
+import { createModelRetryReporter } from "./model-retry-output.js";
 
 /**
  * headless（`-p`）下的 CreateWorkflow 审批旁路。
@@ -237,7 +238,7 @@ interface HeadlessSessionObserver {
  *
  * 三种格式的分工：
  *   stream-json → 每条事件一行 NDJSON 到 stdout，dwf 进度走定型行；stderr 不重复。
- *   text        → 只有 dwf 进度，且只到 stderr（stdout 属于结果）。
+ *   text        → dwf 进度与 model retry 状态只到 stderr（stdout 属于结果）。
  *   json        → 不写任何事件（契约是"恰好一个对象"）。
  *
  * 三种格式**都**要观察事件——即使 json 一个字都不打，等待仍要靠这里的 dwf 触发判据
@@ -266,6 +267,10 @@ export const createHeadlessSessionObserver = (
     mapSessionEvent === undefined && wantsWorkflowProgress(options)
       ? createWorkflowProgressReporter({ write: (line) => void stderr.write(line) })
       : undefined;
+  const reportRetry =
+    mapSessionEvent === undefined && wantsWorkflowProgress(options)
+      ? createModelRetryReporter((line) => void stderr.write(line))
+      : undefined;
 
   let workflowActivity = false;
   let waiting = false;
@@ -282,6 +287,7 @@ export const createHeadlessSessionObserver = (
     observe: (event) => {
       writeStreamEvent?.(event);
       reportProgress?.(event);
+      reportRetry?.(event);
       if (isWorkflowActivityEvent(event)) workflowActivity = true;
       if (!waiting || event.type !== SessionEventType.TurnComplete) return;
       // 首个回合的文本来自 submitPrompt 的返回值；它的 turn_complete 若迟到就会重复计数。

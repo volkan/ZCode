@@ -150,6 +150,8 @@ export function createStreamTextOptions(input: {
     // printing its generic system-message warning to process stderr.
     allowSystemInMessages: true,
     maxRetries: 0,
+    // SDK 默认回调会向 stderr 泄漏原始请求；fullStream 仍将错误交给 runner 分类和重试。
+    onError: () => undefined,
     // AI SDK 会吞掉 Anthropic message_start 等 metadata 事件；compact 需要
     // 在 adapter 内观察 raw event 才能精确结束 SSE retry，raw chunk 不会上送 Core/UI。
     includeRawChunks: input.request.preserveProviderStreamBoundaries ? true : undefined,
