@@ -1,5 +1,5 @@
 import type { AiSdkProviderKind, ProviderBusinessErrorOptions } from "./model-execution.js";
-import { ProviderBusinessError } from "./model-execution.js";
+import { ProviderBusinessError, summarizeProviderBusinessBody } from "./model-execution.js";
 import { getHttpResponseStatus, getResponseHeaders } from "./failure-inspection.js";
 import { asRecord, stringProperty } from "./runner-record.js";
 
@@ -99,7 +99,11 @@ function extractBusinessFailurePayload(record: Record<string, unknown>) {
   const providerMessage = candidates.map(readProviderMessage).find(Boolean);
   const providerRequestId = candidates.map(readProviderRequestId).find(Boolean);
   const responseHeaders = candidates.map(getResponseHeaders).find(Boolean);
-  const responseBodySummary = candidates.find(hasBusinessSignal);
+  const businessRecord = candidates.find(hasBusinessSignal);
+  // 原始 finish 记录可含敏感 header 或循环引用；复用 HTTP/SSE 的白名单摘要。
+  const responseBodySummary = businessRecord
+    ? summarizeProviderBusinessBody(businessRecord)
+    : undefined;
   const responseStatus = candidates.map(getHttpResponseStatus).find((value) => value !== undefined);
   const statusCode = candidates.map(readStatusCode).find((value) => value !== undefined);
 

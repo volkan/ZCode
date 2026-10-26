@@ -30,6 +30,7 @@ import { createModelOptionMapFetch, type RawRequestBodyCapture } from "./model-o
 import { createNetworkProxyFetch } from "../network/proxy-fetch.js";
 import { createProviderEndpointRoutingFetch } from "./provider-endpoint-routing-fetch.js";
 import { normalizeModelTlsFailure } from "./failure-tls.js";
+import { sanitizeModelNetworkHeaders } from "./runner-network-headers.js";
 import {
   mergeModelRequestHeaders,
   withoutModelAuthHeaders,
@@ -141,7 +142,11 @@ export class ProviderBusinessError extends Error {
     this.providerMessage = providerMessage;
     this.providerRequestId = options.providerRequestId;
     this.responseBodySummary = options.responseBodySummary;
-    this.responseHeaders = options.responseHeaders;
+    // 错误对象会直接进入 inspection/JSON；在公开边界复用网络头脱敏策略，保留重试提示。
+    this.responseHeaders =
+      options.responseHeaders === undefined
+        ? undefined
+        : sanitizeModelNetworkHeaders(options.responseHeaders);
     this.responseStatus = options.responseStatus;
     this.statusCode = options.statusCode;
   }
@@ -1056,7 +1061,9 @@ function normalizeProviderId(value: unknown): string | undefined {
     : normalized;
 }
 
-function summarizeProviderBusinessBody(record: Record<string, unknown>): Record<string, unknown> {
+export function summarizeProviderBusinessBody(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
   const summary: Record<string, unknown> = {
     keys: Object.keys(record).slice(0, 20),
   };

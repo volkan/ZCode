@@ -8,6 +8,15 @@ app-server 模式默认开启模型流式输出。Vercel AI SDK 的 `streamText(
 
 ## 契约
 
+- `ProviderBusinessError` 在构造时必须通过 `runner-network-headers.ts` 的既有策略复制并脱敏
+  `responseHeaders`，使默认 Error inspection 与 JSON serialization 不暴露敏感响应头。
+  header 名统一为小写；保留 `retry-after`、`retry-after-ms`、`x-should-retry` 的原始值，
+  包括显式 `false`，不改变重试分类或等待策略。不修改调用方对象；未提供 header 时仍为
+  `undefined`。HTTP/SSE 检测及 finish 重建复用同一构造边界，不新增下游日志脱敏策略。
+- finish 重建不得把原始候选记录放入 `responseBodySummary`；必须复用 HTTP/SSE 的
+  `summarizeProviderBusinessBody` 白名单摘要。原始记录可含 response header 或循环引用；
+  摘要不保留 header 值、任意嵌套对象或调用方引用，业务码与 retry header 独立保留。
+
 - 对普通主请求（`preserveProviderStreamBoundaries` 未开启），如果一次模型 attempt
   正常结束但同时满足：`finishReason` 非 `stop`/`tool-calls`、text 为 0、reasoning
   为 0、tool call 为 0、usage 为 0，则 adapter 将其识别为 generic empty
@@ -122,6 +131,11 @@ core recovery 的可观测性要求：
 优先级：显式传入 adapter 的 `retry` 选项 > `ZCODE_MODEL_RETRY_*` 环境变量 > 内置默认值。非法环境变量值不会让启动失败；adapter 忽略该变量并回退到下一层默认值，避免一个错误的调试变量让 CLI 完全不可用。日志和状态事件不得输出完整环境变量集合，只能暴露归一化后的 retry budget。
 
 ## 测试覆盖
+
+- 使用虚构 CANARY 验证直接构造、mock fetch 业务错误与该错误的 finish 重建：
+  混合大小写的 Set-Cookie、Authorization 和 API-key 不出现在默认 inspection/JSON 中；
+  retry header、HTTP status 与 provider business code 保留。验证输入不变、未提供 header
+  仍为 `undefined`，以及 `x-should-retry=false` 继续阻止 retry-after 等待提示。
 
 - 纯签名或空正文 delta 后，仅出现尚未完成的 `tool_input_start` / `tool_input_delta`，随后发生 SSE 503 error chunk、连接重置或 idle timeout 时，应走 adapter retry，且不向 core 泄漏失败 attempt 的签名、空 delta 和工具输入。AI SDK 将提前 EOF 归一为空 completion 时，继续验证既有一次 empty completion retry；本次不扩展 EOF 检测或其预算。
 - 成功 attempt 的签名必须完整保留并在完整工具调用前按原序释放；非空正文/思考、完整 `tool_call`、compact provider boundary 仍停止 adapter 重放。取消、非可重试错误和预算耗尽均不增加请求。
