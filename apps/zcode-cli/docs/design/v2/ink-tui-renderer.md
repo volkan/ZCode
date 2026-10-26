@@ -106,6 +106,21 @@ capability checks:
   the active turn when one is running, keeps approval/selection local cancel
   semantics, and is otherwise a no-op status hint.
 
+## Startup input ownership
+
+`runTuiWithRenderer` owns the transition from the startup screen to the main screen.
+The startup React tree must unmount before the main tree renders.
+The pinned OpenTUI root creates a new container for every render.
+Explicit unmount removes startup keyboard listeners before main input takes ownership.
+Startup Ctrl+C keeps its interrupt exit code. Main-screen Ctrl+C keeps its two-press confirmation.
+
+```mermaid
+stateDiagram-v2
+    Startup --> Main: options ready / unmount startup, render main
+    Startup --> Closed: startup Ctrl+C / exit 130
+    Main --> Closed: confirmed main Ctrl+C / exit 0
+```
+
 ## Failure Behavior
 
 If a turn fails, the controller formats the error chain into an agent message and

@@ -46,11 +46,13 @@ async function terminalFixture(
     height: 32,
     targetFps: 30,
     screenMode: "alternate-screen",
+    exitOnCtrlC: false,
     useThread: false,
   });
   const theme = deferred<UiThemeMode>();
   terminal.renderer.waitForThemeMode = () => theme.promise;
   configure?.(terminal);
+  const initialKeyListeners = terminal.renderer.keyInput.listeners("keypress");
   let outcome!: Promise<number | Error>;
   await React.act(async () => {
     outcome = runTuiWithRenderer({ ...baseOptions, ...options }, terminal.renderer).catch(
@@ -60,6 +62,7 @@ async function terminalFixture(
   });
   return {
     ...terminal,
+    initialKeyListeners,
     theme,
     outcome,
     async action(work: () => void | Promise<void>) {
@@ -130,6 +133,35 @@ test("native first paint precedes initialization and theme detection; ready opti
       "late terminal detection preserves explicit theme",
     );
     assert.equal(calls, 1);
+  } finally {
+    await terminal.close();
+  }
+});
+
+test("startup listeners are removed before main input takes ownership", async () => {
+  const startup = deferred<TuiStartupOptions>();
+  const terminal = await terminalFixture({ loadStartupOptions: () => startup.promise });
+  try {
+    await terminal.action(() => terminal.renderOnce());
+    const startupListeners = terminal.renderer.keyInput
+      .listeners("keypress")
+      .filter((listener) => !terminal.initialKeyListeners.includes(listener));
+    assert.ok(startupListeners.length > 0);
+    await terminal.action(() => startup.resolve({ loginRequired: false }));
+    const mainListeners = terminal.renderer.keyInput.listeners("keypress");
+    for (const listener of startupListeners) {
+      assert.ok(!mainListeners.includes(listener), "startup keyboard listener remains mounted");
+    }
+    await terminal.action(() => terminal.mockInput.pressCtrlC());
+    assert.equal(
+      terminal.renderer.isDestroyed,
+      false,
+      "first main Ctrl+C only requests confirmation",
+    );
+    await terminal.action(() => terminal.mockInput.pressCtrlC());
+    assert.equal(await terminal.outcome, 0);
+    const remainingListeners = terminal.renderer.keyInput.listeners("keypress");
+    assert.deepEqual(remainingListeners, terminal.initialKeyListeners);
   } finally {
     await terminal.close();
   }
